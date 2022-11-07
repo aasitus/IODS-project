@@ -1,5 +1,6 @@
 ---
 title: "IODS course project"
+author: "Arto Kekkonen"
 output:
   html_document:
     theme: cosmo
