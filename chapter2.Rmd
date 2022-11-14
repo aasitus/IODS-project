@@ -1,4 +1,4 @@
-# Insert chapter 2 title here
+# Week 2
 
 *Describe the work you have done this week and summarize your learning.*
 
@@ -10,4 +10,132 @@
 date()
 ```
 
-Here we go again...
+```{r, echo = FALSE}
+library(tidyverse)
+library(GGally)
+```
+
+Okay, let's start with reading the data:
+
+```{r, echo = FALSE}
+data <- read.csv('data/learning2014.csv')
+```
+
+The data contains information about the participants of a statistics course, their course points, and their learning strategies. We've previously filtered the data so that what's remaining is points, age, gender, an index of attitudes towards statistics, and indices of deep, strategic, and surface learning strategies.
+
+Some summaries. For numerical variables, let's take the mean:
+
+```{r}
+data %>%
+  summarise(across(c(age, attitude, deep, stra, surf, points), ~ mean(.x)))
+```
+Strategy variables have been rescaled to range from 1 to 5, so the mean for all is somewhat above the midpoint of the scale. Points range from 0 to 30.
+
+For gender, let's look at proportions:
+
+```{r}
+prop.table(table(data$gender))
+```
+Somewhat more females than males, it seems.
+
+Let's look at scatterplots:
+
+```{r}
+ggpairs(data, mapping = aes(alpha = 0.3), lower = list(combo = wrap("facethist", bins = 20)))
+```
+
+With regards to what's intended to be the outcome variable (points), we can see observe that there does not seem to be a gender difference, although at the high end of the scale there seems to be a bit of a surplus of males.
+The average participant is around 20, with naturally more older than younger students in the mix.
+The scatterplot for attitude vs points suggests a positive relationship, which is also evident in the corresponding correlation coefficient; the same applies to the negative relationship between deep and points.
+We can also see signs that surface has a negative relationship with attitude, deep, and stra.
+
+Given that the data contains questions related to three different learning strategies, called surface, deep, and strategic, it's natural to use these to predict the outcome variable.
+From a theoretical point of view, that is; if we just look at the correlations of the variables with the outcome variable, attitude seems like the strongest candidate. But we can only pick three, so here we go.
+So let's fit a linear model and output a summary.
+
+```{r}
+fit <- lm(points ~ deep + stra + surf, data = data)
+
+summary(fit)
+```
+Alright, now let's interpret this.
+
+First, we have the estimates column.
+We're assuming that in the population from which this sample has been drawn, each student's score is given by
+
+$points = \beta_0 + \beta_1 \cdot deep + \beta_2 \cdot stra + \beta_3 \cdot surf + \epsilon$
+
+where $\epsilon$ is the error term and represents effects not taken into account in the model.
+
+With the model, we seek to estimate $\beta_0 ... \beta_3$ based on the data we have.
+The estimates column gives these estimates.
+Now, we can imagine drawing an arbitrarily large set of samples like this and performing the same modeling exercise for all of them.
+We'd get different estimates in each case, and the standard error (Std.error) tells us how much, on average, the estimates differ from the actual parameter values.
+Strictly speaking, the what's shown in the Std.error column is itself an estimate of the actual population standard error, given that it's computed using the data set we have.
+
+These we could use to construct confidence intervals: roughly speaking, for each estimate we can compute $\hat{\beta_i} \pm 2 \cdot SE(\hat{\beta_i})$ based on a sample to get a 95% confidence interval.
+95% of such CIs, computed for the set of arbitrarily many samples, contain the true population parameter.
+
+The test statistic is related.
+Let's assume, i.e. put forward the null hypothesis, for an estimate that the true population value of that parameter is exactly 0.
+We can compute the $t$-statistic using the estimate and its standard error, and, under the assumption that the true parameter is 0, the probability of observing a value of $t$ that is as extreme (as far away from 0) as what has been observed.
+This probability, the $p$-value, is given in the rightmost column.
+So one could roughly interpret, say, the $p$-value of 0.0769 associated with the coefficient for surf as saying that, assuming that the true value is 0, there's a roughly 8% chance of seeing a corresponding test statistic this, or more, extreme.
+Given that the test statistic is calculated using the parameter estimate, one can simplify this by saying that the $p$-value tells us about the likelihood of seeing a parameter estimate at least as extreme as what is observed.
+
+Note that all of this holds if the assumptions of the linear regression model are met; if not, various errors may creep in.
+
+So, the model tells us that for each increase in deep, points decrease by -0.7; for stra, they increase by 1; and for surf, they decrease by -1.6.
+We observe a roughly 40% probability of seeing a result this extreme, or more, if deep actually had no relationship with points at all; so one shouldn't conclude too much based on this.
+For stra and surf, our inferences are a bit more sound.
+
+The assignment says that explanatory variables that do not have a statistically significant relationship with the target variable should next be removed.
+'Statistical significance' has no unambiguous meaning, but often something like $p < 0.001$, $p < 0.01$ or $p < 0.05$ is used. 
+None of the variables are statistically significant under these levels of confidence, but R helpfully marks, with a dot, all coefficients that are distinguishable from zero under the $p < 0.1$ level of confidence.
+
+So let's roll with that and drop deep:
+
+```{r}
+fit <- lm(points ~ stra + surf, data = data)
+
+summary(fit)
+```
+Removing this variable means that the remaining variables lose all significance. So whereas 'deep' did not have a clear relationship with the outcome variable in the first model, it seems that controlling for it made the relationships between the other two variables and the outcome variable more visible. Given that there is a theoretical reason for keeping it in the mix, I'd opt for keeping the omitted variable instead. 
+
+Finally, we have the $R^2$, given as "Multiple R-squared" and "Adjusted R-squared" in the model summaries.
+The R-squared is
+
+$R^2 = 1 - RSS/TSS$
+
+where $TSS = \sum{(y_i - \bar{y})^2}$, in our case, the squared difference of each student's score from the mean score, and $RSS = \sum{(y_i - \hat{y_i})^2}$.
+So in the latter formula, we look at the difference between each participant's actual score, and their predicted score, according to our model.
+So we look at how much variation there is in the data at the beginning (TSS).
+Then we calculate how much variance is left after we've predicted the target variable with our model (RSS).
+Finally, we take $TSS - RSS$ to measure how much variation is left after the information from the model is taken into account; it's complement, $R^2$, thus tells us 'how much of the variation in the target variable is explained by the explanatory variables'.
+It's guaranteed to increase as more explanatory variables are added, which is my adjusted $R^2$, which takes the complexity of the model into account, can be useful.
+In this case, $R^2$ is in any case unimpressive at a couple of percents, meaning that the model doesn't tell us very much.
+
+Finally, using our latter model, let's assess the fit.
+We make a number of assumptions with ordinary least squares linear regression. 
+We assume that the target variably relates linearly to the explanatory variables; that is, we don't need something like a quadratic transformation of the data.
+We assume that errors are independent of each other, i.e. knowing how much one participant's predicted score differs from their actual score doesn't tell us anything about some other participant.
+We assume that errors follow a normal distribution and do not depend on the level of the target variable.
+
+Let's plot some diagnostics:
+
+```{r}
+par(mfrow = c(2,2))
+plot(fit, which = c(1,2,5))
+```
+
+The assignment asks for residual versus fitted values, normal Q-Q plot, and a plot of residuals against leverage so we'll skip the fourth (fitted versus standardized residuals).
+First, we should see no patterns in the plot of predicted values versus residuals.
+This is not completely true, as we can see signs that small and large predicted values are associated with smaller residuals.
+Note that the model only predicts values between 20 and (roughly) 26, and there is a cap for points at 30; perhaps partly because of this, the largest negative residuals are around -15, while the largest positive residuals are around 10.
+This is also visible in the Q-Q plot, which compares the distribution of residuals against the normal distribution. We can see that the distribution is not quite normal.
+Nevertheless, I don't think that these diagnostics show any highly relevant violations of the assumptions.
+Finally, the residuals vs leverage plot should show us if there are any data points that have an outsized impact on the resulting model, i.e. such that removing them would substantially change it.
+For whatever reason, Cook's distance of more than 1 is what we're looking for; none of the data points come close to having that much leverage.
+
+I think it's worth noting, though, that strictly speaking ordinary least squares regression assumes the outcome variable to be unbounded, which it is not in this case.
+Generally speaking, this is not a highly useful model in any case.
