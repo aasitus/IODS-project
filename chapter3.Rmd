@@ -1,0 +1,88 @@
+# Week 3
+
+
+
+```{r}
+date()
+```
+```{r, echo=FALSE}
+library(tidyverse)
+library(broom)
+library(finalfit)
+
+data <- read.csv('data/student-combined.csv', header = TRUE)
+```
+
+Our data set contains information on the performance of the students of two courses, along with background variables as well as their alcohol consumption. 
+
+```{r}
+colnames(data)
+```
+Variables ending in .x relate to a mathematics course, variables ending in .y to a Portuguese course. Similarly named variables without a suffix contain their mean or, in the case of non-numeric variables, come from the former data set.
+
+'Dalc' and 'Walc' denote workday and weekend alcohol consumption, respectively, measured on an ordinal scale from 1 (very low) to 5 (very high). 'alc_use' is their mean, and 'high_use' is a binary variable equalling TRUE if 'alc_use' is 3 or higher.
+
+We want to build a logistic regression model with four independent variables, so we should pick some variables that could predict the level of a student's alcohol use. I'll put forward the following hypotheses:
+
+* Worse family relationships predict higher alcohol use
+* Not having a romantic relationship predicts higher alcohol use
+* Male students are more likely to use a lot of alcohol than females
+* Students aiming for higher education are less likely to use a lot of alcohol
+
+Let's do some explorations.
+
+```{r}
+par(mfrow = c(2,2))
+qplot(x = famrel, col = high_use, data = data, geom = 'density')
+round(prop.table(table(data$romantic, data$high_use), margin = 1), 2)
+round(prop.table(table(data$sex, data$high_use), margin = 1), 2)
+round(prop.table(table(data$higher, data$high_use), margin = 1), 2)
+```
+At a glance, it seems like these match our expectations. The high use group is at least less likely to report very good family relationships. Those with a romantic relationship are less likely to use a lot of alcohol, although this effect doesn't seem very big. Males seem clearly more likely to belong in the high use group in comparison to females, as do those who are not interested in higher education, in comparison to those who are.
+
+Let's with a logistic regression model next.
+
+```{r}
+fit <- glm(high_use ~ sex + romantic + higher + famrel, data = data, family = binomial)
+```
+
+```{r}
+summary(fit)
+```
+We see strongly significant effect for the male gender, and for family relationships (p < 0.001 and p < 0.01, respectively). Having a romantic relationship seems to have no effect. Interestingly, aiming for a higher education has only a weakly significant relationship in this model. Maybe this relates to females being more likely to aim for a higher education. Let's see:
+
+```{r}
+round(prop.table(table(data$sex, data$higher), margin = 1), 2)
+```
+Hmm, could be that this has something to do with it. Now, let's interpret the coefficients and look at the confidence intervals.
+
+```{r}
+fit %>% tidy(conf.int = TRUE, exp = TRUE)
+```
+The odds ratio for male gender is around 2.5. The way of interpreting this that seems the most intuitive to me is to note that the coefficient for the intercept is, also, around 2.5. The intercept corresponds to a student who is female, is not in a romantic relationship, is not aiming for higher education, and whose family relationship score is zero. The coefficient of 2.5 matches a $2.5/(2.5 + 1) = 0.71$ probability of being a heavy alcohol user. Now, if we learn that such a person is male instead of female, their odds of being in the high-use group are 2.5 times higher, i.e. $2.5 \cdot 2.5 = 6.25$, which corresponds to a $6.25/(6.25 + 1) = 0.86$ probability of belonging in the heavy-use group.
+
+The rest of the coefficients are all smaller than 1, indicating that they predict a lower probability of being a heavy alcohol user. However, the quality of family relationships is the only one for which we can state, at the $95\%$ level of confidence, that they are indeed associated with a lower probability. 
+
+I don't quite understand what is meant by the part "using the variables which, according to your logistic regression model, had a statistical relationship with high/low alcohol consumption, explore the predictive power of you model". So I'll just go on and compare predictions against actual values from the model we just fitted.
+
+Let's classify a prediction as low use if predicted probability of belonging in the high-use group is smaller than 0.5, and as high use otherwise.
+
+```{r}
+predicted <- round(predict(fit, type = 'response'))
+table(data$high_use, predicted)
+```
+97 observations that actually belonged in the high-use group were inaccurately predicted as belonging in low-use group, and 8 low-users were classified as low-users. So the error rate is 
+
+```{r}
+(8 + 97) / (251 + 8 + 97 + 14)
+```
+
+Note that the proportion of students who belong in the high-use group is also around 0.3:
+
+```{r}
+data %>%
+  summarise(sum(high_use) / 370)
+```
+So if we just classified everyone in the high-use group, our error rate would be approximately the same. 
+
+
