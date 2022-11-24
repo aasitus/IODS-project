@@ -1,0 +1,126 @@
+---
+title: "Chapter 4"
+author: "Arto Kekkonen"
+date: "2022-11-24"
+output: html_document
+---
+
+```{r}
+date()
+```
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(MASS)
+library(GGally)
+```
+
+Let's load the Boston data set. It contains information about areas around the city of Boston, including variables such as the per capita crime rate and the mean number of rooms per dwelling.
+
+```{r}
+data(Boston)
+str(Boston)
+dim(Boston)
+```
+We have 14 variables, named as above.
+
+```{r, echo = FALSE}
+ggpairs(Boston)
+```
+
+There's a lot of variables here. But we can see, for instance, that crime rate (crim) correlates with just about everything, as does apartment value (medv). All in all, there are a lot of rather strong relationships in the data. Now, let's standardize the data.
+
+Also, here's a summary of the data:
+
+```{r}
+summary(Boston)
+```
+
+
+```{r}
+boston_scaled <- as.data.frame(scale(Boston))
+summary(boston_scaled)
+
+```
+Everything now has a mean of 0. We can conveniently see that some variables are quite skewed, such as crim, while some others seem more neatly symmetric, such as rm.
+
+Let's turn crim into a factor.
+
+```{r}
+boston_scaled$crim <- as.numeric(boston_scaled$crim)
+crim_bins <- quantile(boston_scaled$crim)
+crime <- cut(boston_scaled$crim, breaks = crim_bins, include.lowest = TRUE, labels = c('low', 'med_low', 'med_high', 'high'))
+boston_scaled <- dplyr::select(boston_scaled, -crim)
+boston_scaled$crime <- crime
+
+set.seed(1234)
+n <- nrow(boston_scaled)
+
+ind <- sample(n, size = n * 0.8)
+train <- boston_scaled[ind,]
+test <- boston_scaled[-ind,]
+
+```
+
+Let's fit the LDA then.
+
+```{r}
+correct_classes <- test$crime
+test <- dplyr::select(test, -crime)
+
+fit <- lda(crime ~ ., data = train)
+```
+
+The function given in the exercise set produces a really ugly plot, so let's use the ggord package instead to create the biplot:
+
+```{r, echo = FALSE}
+library(ggord)
+
+classes <- as.numeric(train$crime)
+
+ggord(fit, as.factor(classes))
+```
+Next, let's test our model.
+
+```{r}
+predicted <- predict(fit, newdata = test)
+
+table(correct = correct_classes, predicted = predicted$class)
+
+```
+On the diagonal, we have correctly categorized observations. One can see that the model gets few observations totally wrong, and most guesses are wrong by a single category.
+
+Finally, let's try k-means.
+
+```{r}
+data(Boston)
+boston_standard <- as.data.frame(scale(Boston))
+
+summary(dist(boston_standard))
+summary(dist(boston_standard, method = 'manhattan'))
+```
+```{r}
+set.seed(123)
+
+k_max <- 10
+
+sums_of_squares <- sapply(1:k_max, function(x) kmeans(boston_standard, x)$tot.withinss)
+
+qplot(x = 1:k_max, y = sums_of_squares, geom = 'line')
+```
+There's no obvious best solution here, but since we need to pick one, we'll go with 2 as that's where the biggest drop happens.
+
+```{r}
+model <- kmeans(boston_standard, 2)
+clus <- model$cluster
+```
+
+For some reason ggpairs takes ages to plot this, so let's go with pairs(). 
+
+```{r}
+pairs(boston_standard, col = clus)
+```
+This isn't that easy to interpret. Perhaps the most notable thing is that everything in the black cluster seems to have the minimum crime rate, whereas the red cluster includes everything else. Red cluster also seems to contain dwellings with lower prices, higher NO2 levels (nox), and have better access to highways (rad).
+
+
+
