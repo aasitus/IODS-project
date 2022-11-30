@@ -18,5 +18,3 @@ gii$lfpr_ratio <- gii$lfpr_f / gii$lfpr_m
 combined <- dplyr::inner_join(hd, gii, by = 'country')
 
 write_csv(combined, 'data/human.csv')
-
-combined$gni
