@@ -1,0 +1,310 @@
+---
+title: "Chapter 5"
+author: "Arto Kekkonen"
+date: "2022-11-29"
+output: html_document
+---
+
+# Week 5
+
+```{r}
+date()
+```
+
+```{r, echo = FALSE}
+library(tidyverse)
+```
+
+## Part 1
+
+```{r, echo = FALSE}
+ratsl <- read_csv('data/ratsl.csv') %>%
+  dplyr::mutate(ID = as.factor(ID),
+                Group = as.factor(Group))
+```
+
+All right, so we're about to delve into an analysis of a data set from a study of how different diets being fed to rats affects their growth. The data set, which has already been converted into long form, includes 
+
+* an ID for each rat
+* the group into which it was assigned
+* the time when it has been weighed (in days after the experiment started), and
+* its weight at that time.
+
+There are 16 rats, and each rat was weighed 11 times, resulting in a total of 176 observations. The observations are dependent in several ways: some are weighings of the same rat, some have been taken at the same time, and some are weighings of rats belonging in the same group. In line with this week's exercise set, we ignore these dependencies for now.
+
+Let's plot each individual rat's growth curve as a line. Just to keep track of what's actually going on, let's use color to mark the group into which they belong.
+
+```{r}
+ggplot(ratsl, aes(x = time, y = weight, group = ID, color = Group)) +
+  geom_line() +
+  scale_y_continuous('Weight (grams)') +
+  scale_x_continuous('Time (days)')
+```
+
+I guess 'day 1' is actually already one week into the experiment, given that group 1 is already seen to diverge from the others at the very beginning of the period.
+
+The next step in the exercise is grouping the observations and standardizing the value of interest. Let's do that.
+
+```{r}
+ratsl <- ratsl %>%
+  group_by(Group) %>%
+  dplyr::mutate(stdweight = (weight - mean(weight)) / sd(weight)) %>%
+  ungroup()
+```
+
+This makes it a little easier to se that within each group, rats that were heavier at the start tend to be heavier as the experiment goes on.
+
+```{r}
+ggplot(ratsl, aes(x = time, y = stdweight, group = ID)) +
+  geom_line() +
+  scale_y_continuous('Weight (grams)') +
+  scale_x_continuous('Time (days)') +
+  facet_wrap(~ Group)
+```
+
+The next step in the exercise was presenting summaries for the different treatment groups at different times. 
+
+```{r}
+ratss <- ratsl %>%
+  group_by(Group, time) %>%
+  summarise(mean = mean(weight), se = sd(weight) / n()) %>%
+  ungroup()
+
+glimpse(ratss)
+```
+```{r}
+ggplot(ratss, aes(x = time, y = mean, linetype = Group, shape = Group)) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se, linetype = "1"), width = 0.3) +
+  scale_y_continuous(name = "mean(weight) +/- se(weight)") +
+  scale_x_continuous(name = 'Time (days)')
+```
+
+The three groups appear quite distinct. Note the rather wide error bars for the second group. We've already seen in the last two plots that there is one rat in that group that's considerably heavier than the rest. There's likewise one in the other two groups each that diverges from the others, although not as drastically; and in the case of the first group, in particular, the larger $n$ means this affects the standard error less.
+
+Given that we can, nevertheless, observe differences between the groups, let's just move on for now. What's interesting here is whether the groups differ from each other: groups 2 and 3 from group 1, and groups 2 and 3 from each other. In the exercise set, observations from the first point in time are considered the baseline. We do not have a baseline in the same sense here, given that weight at the very beginning has not been recorded, so we keep all observations for now.
+
+With this in mind, let's then perform a pairwise t-test and correct for multiple comparisons.
+
+```{r}
+rats_summaries <- ratsl %>%
+  group_by(Group, ID) %>%
+  summarise(mean = mean(weight)) %>%
+  ungroup() 
+```
+
+```{r}
+pairwise.t.test(rats_summaries$mean, rats_summaries$Group, 
+                p.adjust = 'bonferroni', data = rats_summaries)
+```
+
+We see that groups 2 and 3 clearly differ from group 1, but we can't distinguish group 2 from group 3. But based on the visual investigation performed before, we perhaps should. This could be due to there being outliers, so let's adapt the analysis from the exercise set for investigating this.
+
+```{r}
+rats_summaries %>%
+  ggplot(aes(x = Group, y = mean)) +
+    geom_boxplot() +
+    stat_summary(fun = "mean", geom = "point", shape=23, size=4, fill = "white") +
+    geom_point()
+    scale_y_continuous(name = "Mean(weight)")
+```
+
+Yeah, we can see a few rats as standing out a little. Let's try filtering out the potential outlier from each group. 
+
+```{r}
+rats_summaries %>%
+  dplyr::filter(Group == 1 & mean > 250 | 
+                  Group == 2 & mean < 500 |
+                  Group == 3 & mean > 500) %>%
+  ggplot(aes(x = Group, y = mean)) +
+    geom_boxplot() +
+    stat_summary(fun = "mean", geom = "point", shape=23, size=4, fill = "white") +
+    scale_y_continuous(name = "Mean(weight)")
+```
+
+```{r}
+rats_summaries_no_outliers <- rats_summaries %>%
+  dplyr::filter(Group == 1 & mean > 250 | 
+                Group == 2 & mean < 500 |
+                Group == 3 & mean > 500)
+```
+```{r}
+pairwise.t.test(rats_summaries_no_outliers$mean, rats_summaries_no_outliers$Group, 
+                p.adjust = 'bonferroni', data = rats_summaries)
+```
+Indeed, with the potential outliers removed, we now also see a statistically significant difference between groups 2 and 3.
+
+Now, let's nevertheless perform the analysis from the exercise set, where a linear model with treatment group and baseline as predictors is fitted with mean weight as the dependent variable. The offending rats' IDs are 2, 12 and 13, so we'll remove those.
+
+```{r}
+rats_baseline <- ratsl %>%
+  dplyr::filter(ID != 2 & ID != 12 & ID != 13) %>%
+  dplyr::filter(time == 1)
+
+rats_for_lm <- rats_summaries %>%
+  dplyr::filter(ID != 2 & ID != 12 & ID != 13) %>%
+  mutate(baseline = rats_baseline$weight)
+
+fit <- lm(mean ~ baseline + Group, data = rats_for_lm)
+
+summary(fit)
+anova(fit)
+```
+The analysis identifies not just diet as a relevant factor for rat weight, but also that all three diets differ from each other.  It also finds that how much a rat weighed at the start is a contributing factor. That said, the analysis is pretty heavily geared toward finding some differences, given all the assumption violations and removal of 'outliers'.
+
+## Part 2 
+
+Let's move on to part two, and playing with the other data set. 
+
+```{r}
+library(lme4)
+library(lmerTest)
+```
+
+Let's load the data. To make some things a little simpler later on, we'll modify subject IDs so that IDs in treatment group 1 range from 1 to 20, and those in treatment group 2 from 21 to 40. This data comes from a clinical trial, where 40 subjects (all male) were divided into two treatment groups, and a psychiatric scale (BPRS) was administered at the beginning, and weekly afterwards. The main variables of interest are the BPRS score, treatment group, and subject identifier.
+
+```{r, echo=FALSE}
+bprsl <- read_csv('data/bprls.csv') %>%
+  mutate(treatment = as.factor(treatment),
+         subject = case_when(treatment == 1 ~ subject,
+                             treatment == 2 ~ subject + 20)) %>%
+  mutate(subject = as.factor(subject))
+
+glimpse(bprsl)
+```
+
+Again, let's plot the data.
+
+```{r}
+p1 <- ggplot(bprsl, aes(x = week, y = bprs, group = subject, color = treatment)) +
+  geom_line() +
+  #scale_y_continuous('Weight (grams)') +
+  scale_x_continuous('Time (weeks)') +
+  scale_y_continuous('BPRS')
+
+p1
+```
+
+That's a pretty mess. We can't really see any meaningful differences between the groups. As already observed earlier, scores tend to go down for almost everyone in the study, with some exceptions.
+
+Let's move on to fitting models, as was done in the exercise set. We start with a simple linear model.
+
+```{r}
+bprs_reg <- lm(bprs ~ week + treatment, data = bprsl)
+
+summary(bprs_reg)
+```
+
+We identify time as having an effect, but no difference between the treatments. Next up, a random intercept model with a separate intercept for each subject.
+
+Note that I'm using the lmerTest package, which adds p-values to the model summary.
+
+```{r}
+bprs_ref1 <- lmer(bprs ~ week + treatment + (1 | subject), data = bprsl, REML = FALSE)
+
+summary(bprs_ref1)
+```
+
+The standard deviation of the random intercept is close to 10, indicating that the position varies quite a bit (as could be deduced from the first plot we saw). We see almost exactly the same estimates for the coefficients of week, and for belonging in treatment group 2. The coefficient for week is again clearly significant, that for treatment 2 is not. The standard error for week is smaller, and larger for treatment 2, than in the simple OLS model.
+
+We can plot this model:
+
+```{r}
+p2 <- bprsl %>%
+  mutate(ref1_fitted = fitted(bprs_ref1)) %>%
+  ggplot(aes(x = week, y = ref1_fitted, group = subject, color = treatment)) +
+    geom_line() +
+    scale_x_continuous(name = 'Time (weeks)') +
+    scale_y_continuous(name = 'Fitted value')
+
+p2
+```
+
+Next, let's fit a random intercept and random slope model. We'll include random effects for week and subject. Now we have separate intercepts, but also separate slopes, for every individual subject.
+
+```{r}
+bprs_ref2 <- lmer(bprs ~ week + treatment + (week | subject), data = bprsl, REML = FALSE)
+
+summary(bprs_ref2)
+anova(bprs_ref1, bprs_ref2)
+```
+
+We still see pretty similar fixed effects. Variance associated with subject is increased, meaning that in this model, the starting points of the slopes are even more spread out. The new model nevertheless fits the data better.
+
+We can similarly plot this model. The lines tend to slope downwards, but with some having a positive slope, too.
+
+```{r}
+p3 <- bprsl %>%
+  mutate(ref2_fitted = fitted(bprs_ref2)) %>%
+  ggplot(aes(x = week, y = ref2_fitted, group = subject, color = treatment)) +
+    geom_line() +
+    scale_x_continuous(name = 'Time (weeks)') +
+    scale_y_continuous(name = 'Fitted value')
+
+p3
+```
+
+Finally, we can add an interaction between week and treatment group.
+
+```{r}
+bprs_ref3 <- lmer(bprs ~ week + treatment + (week | subject) + week * treatment, data = bprsl, REML = FALSE)
+
+summary(bprs_ref3)
+anova(bprs_ref2, bprs_ref3)
+```
+Note that this model does not appear better-fitting than the previous model, overall. The effect of time remains quite similar to the previous models; the effect of belonging in group 2 flips negative, but remains unsignificant. The interaction appears irrelevant. We can again plot this to see that the difference between this final model and the previous one is negligible.
+
+```{r}
+p4 <- bprsl %>%
+  mutate(ref3_fitted = fitted(bprs_ref3)) %>%
+  ggplot(aes(x = week, y = ref3_fitted, group = subject, color = treatment)) +
+    geom_line() +
+    scale_x_continuous(name = 'Time (weeks)') +
+    scale_y_continuous(name = 'Fitted value')
+
+p4
+```
+
+To compare all four. Let's also split each plot into facets for the two groups.
+
+```{r}
+p1 + facet_wrap(~ treatment)
+p2 + facet_wrap(~ treatment)
+p3 + facet_wrap(~ treatment)
+p4 + facet_wrap(~ treatment)
+```
+
+In the exercise set, we removed the dude in group 2 with an excessively high BPRS score. I've kept him in the mix for now, but let's try removing him. We can see that he's the one with a BPRS over 80 at the beginning, so let's find him.
+
+```{r}
+bprsl %>%
+  dplyr::filter(bprs > 80)
+
+# Gotcha!
+
+bprsl_f <- bprsl %>%
+  dplyr::filter(subject != 31)
+```
+
+Let's just fit the full model, with random intercepts, random slopes, and interactions, to see if it appears any different from the one fitted to the data with the 'outlier'; if so, we can investigate further.
+
+```{r}
+bprs_ref4 <- lmer(bprs ~ week + treatment + (week | subject) + week * treatment, data = bprsl_f, REML = FALSE)
+
+summary(bprs_ref4)
+```
+
+Doesn't seem so, we still don't have see any statistically significant differences between the groups, or statistically significant interaction effects. The plot looks pretty similar to what we had before.
+
+```{r}
+bprsl_f %>%
+  mutate(ref4_fitted = fitted(bprs_ref4)) %>%
+  ggplot(aes(x = week, y = ref4_fitted, group = subject, color = treatment)) +
+    geom_line() +
+    scale_x_continuous(name = 'Time (weeks)') +
+    scale_y_continuous(name = 'Fitted value') +
+    facet_wrap(~ treatment)
+```
+
+All in all, performing the analysis this way doesn't seem to affect the conclusions.
