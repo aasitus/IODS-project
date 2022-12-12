@@ -1,11 +1,11 @@
 ---
-title: "Chapter 5"
+title: "Chapter 6"
 author: "Arto Kekkonen"
-date: "2022-11-29"
+date: "2022-12-12"
 output: html_document
 ---
 
-# Week 5
+# Week 6
 
 ```{r}
 date()
